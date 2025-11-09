@@ -1,6 +1,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Provider } from 'react-redux';
+import { ToastProvider } from './context/ToastContext';
+import ToastContainer from './components/Toast/ToastContainer';
 import store from './store/store';
 import CustomerAccounts from './pages/Customers/CustomerAccounts';
 import './App.css';
@@ -12,14 +14,17 @@ import './App.css';
 function App() {
   return (
     <Provider store={store}>
-      <Router>
-        <div className="App">
-          <Routes>
-            <Route path="/" element={<CustomerAccounts />} />
-            <Route path="/customers" element={<CustomerAccounts />} />
-          </Routes>
-        </div>
-      </Router>
+      <ToastProvider>
+        <Router>
+          <div className="App">
+            <Routes>
+              <Route path="/" element={<CustomerAccounts />} />
+              <Route path="/customers" element={<CustomerAccounts />} />
+            </Routes>
+            <ToastContainer />
+          </div>
+        </Router>
+      </ToastProvider>
     </Provider>
   );
 }

@@ -1,20 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDispatch } from 'react-redux';
-import { createCustomerAsync, clearError } from '../../store/slices/customerSlice';
+import { updateCustomerAsync, clearError } from '../../store/slices/customerSlice';
 import { useToast } from '../../context/ToastContext';
+import { splitFullName, parsePhoneNumber } from '../../utils/customerDataMapper';
 import Modal from '../Modal/Modal';
 import Input from '../Input/Input';
+import Textarea from '../Textarea/Textarea';
 import Button from '../Button/Button';
-import styles from './AddCustomerModal.module.css';
+import styles from './EditCustomerModal.module.css';
 
 /**
- * AddCustomerModal component for adding new customers
+ * EditCustomerModal component for editing existing customers
  * @param {Object} props - Component props
  * @param {boolean} props.isOpen - Whether modal is open
  * @param {Function} props.onClose - Close handler
- * @returns {JSX.Element} AddCustomerModal component
+ * @param {Object} props.customer - Customer object to edit
+ * @returns {JSX.Element} EditCustomerModal component
  */
-const AddCustomerModal = ({ isOpen, onClose }) => {
+const EditCustomerModal = ({ isOpen, onClose, customer }) => {
   const dispatch = useDispatch();
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
@@ -31,6 +34,41 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
   const [errors, setErrors] = useState({});
 
   /**
+   * Initialize form data when customer changes
+   */
+  useEffect(() => {
+    if (customer && isOpen) {
+      // Use fullName if available, otherwise use firstName and lastName directly
+      const { firstName: firstNameFromFull, lastName: lastNameFromFull } = splitFullName(customer.fullName || '');
+      const firstName = customer.firstName || firstNameFromFull || '';
+      const lastName = customer.lastName || lastNameFromFull || '';
+      
+      // Use separate fields directly from customer object (API provides separate address, city, state, country)
+      // Fallback to parsing address string if separate fields are not available
+      const address = customer.address || '';
+      const city = customer.city || '';
+      const state = customer.state || '';
+      const country = customer.country || 'USA';
+      
+      // Parse phone number to extract country code and phone number
+      const phoneData = parsePhoneNumber(customer.phoneNumber || customer.phone || '');
+
+      setFormData({
+        firstName,
+        lastName,
+        email: customer.email || '',
+        countryCode: phoneData.countryCode,
+        phoneNumber: phoneData.phoneNumber,
+        address,
+        city,
+        state,
+        country,
+      });
+      setErrors({});
+    }
+  }, [customer, isOpen]);
+
+  /**
    * Validate email format
    * @param {string} email - Email to validate
    * @returns {boolean} Whether email is valid
@@ -43,7 +81,6 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
   /**
    * Validate phone format
    * @param {string} phone - Phone to validate
-   * @param {string} countryCode - Country code to validate
    * @returns {boolean} Whether phone is valid
    */
   const validatePhone = (phone, countryCode) => {
@@ -161,14 +198,16 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
         country: formData.country.trim() || 'USA',
       };
 
-      await dispatch(createCustomerAsync(apiPayload)).unwrap();
-      showToast('Customer added successfully', 'success');
+      await dispatch(updateCustomerAsync({ id: customer.accountId || customer.id, data: apiPayload })).unwrap();
+      showToast('Customer updated successfully', 'success');
       handleClose();
     } catch (error) {
       const errorStatus = error?.status || 500;
-      let errorMessage = 'Failed to add customer';
+      let errorMessage = 'Failed to update customer';
 
-      if (errorStatus === 0) {
+      if (errorStatus === 404) {
+        errorMessage = 'Customer not found';
+      } else if (errorStatus === 0) {
         errorMessage = 'Network error. Please check your connection';
       } else if (errorStatus >= 500) {
         errorMessage = 'Server error. Please try again later';
@@ -197,12 +236,16 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
     onClose();
   };
 
+  if (!customer) {
+    return null;
+  }
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title="Add New Customer"
-      description="Fill in the details to create a new customer account."
+      title="Edit Customer"
+      description="Update the customer information below."
     >
       <form onSubmit={handleSubmit} className={styles.form}>
         <div className={styles.nameRow}>
@@ -211,7 +254,7 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
             name="firstName"
             label="First Name"
             type="text"
-            placeholder="John"
+            placeholder="Jane"
             value={formData.firstName}
             onChange={handleChange}
             required
@@ -223,7 +266,7 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
             name="lastName"
             label="Last Name"
             type="text"
-            placeholder="Doe"
+            placeholder="Smith"
             value={formData.lastName}
             onChange={handleChange}
             required
@@ -237,7 +280,7 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
           name="email"
           label="Email"
           type="email"
-          placeholder="john.doe@example.com"
+          placeholder="jane.smith@example.com"
           value={formData.email}
           onChange={handleChange}
           required
@@ -271,7 +314,7 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
             name="phoneNumber"
             label="Phone Number"
             type="tel"
-            placeholder="1234567890"
+            placeholder="0987654321"
             value={formData.phoneNumber}
             onChange={handleChange}
             required
@@ -285,7 +328,7 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
           name="address"
           label="Address"
           type="text"
-          placeholder="123 Main St"
+          placeholder="456 New St"
           value={formData.address}
           onChange={handleChange}
           required
@@ -298,7 +341,7 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
             name="city"
             label="City"
             type="text"
-            placeholder="New York"
+            placeholder="Los Angeles"
             value={formData.city}
             onChange={handleChange}
             required
@@ -310,7 +353,7 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
             name="state"
             label="State"
             type="text"
-            placeholder="NY"
+            placeholder="CA"
             value={formData.state}
             onChange={handleChange}
             required
@@ -334,7 +377,7 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
             Cancel
           </Button>
           <Button type="submit" variant="primary">
-            Add Customer
+            Update Customer
           </Button>
         </div>
       </form>
@@ -342,6 +385,4 @@ const AddCustomerModal = ({ isOpen, onClose }) => {
   );
 };
 
-export default AddCustomerModal;
-
-
+export default EditCustomerModal;

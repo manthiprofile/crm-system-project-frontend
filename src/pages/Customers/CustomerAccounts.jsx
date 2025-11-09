@@ -1,13 +1,18 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   setSearchTerm,
   setViewMode,
-  deleteCustomer,
+  deleteCustomerAsync,
+  fetchCustomersAsync,
+  clearError,
 } from '../../store/slices/customerSlice';
+import { useToast } from '../../context/ToastContext';
 import Table from '../../components/Table/Table';
 import Button from '../../components/Button/Button';
 import AddCustomerModal from '../../components/AddCustomerModal/AddCustomerModal';
+import EditCustomerModal from '../../components/EditCustomerModal/EditCustomerModal';
+import ConfirmationModal from '../../components/ConfirmationModal/ConfirmationModal';
 import styles from './CustomerAccounts.module.css';
 
 /**
@@ -16,39 +21,85 @@ import styles from './CustomerAccounts.module.css';
  */
 const CustomerAccounts = () => {
   const dispatch = useDispatch();
-  const { customers, searchTerm, viewMode } = useSelector(
+  const { customers, searchTerm, viewMode, loading, error } = useSelector(
     (state) => state.customers
   );
+  const { showToast } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [customerIdToDelete, setCustomerIdToDelete] = useState(null);
 
   /**
-   * Filter customers based on search term
+   * Fetch customers on component mount
+   */
+  useEffect(() => {
+    const loadCustomers = async () => {
+      try {
+        await dispatch(fetchCustomersAsync()).unwrap();
+      } catch (error) {
+        const errorStatus = error?.status || 500;
+        let errorMessage = 'Failed to load customers';
+
+        if (errorStatus === 0) {
+          errorMessage = 'Network error. Please check your connection';
+        } else if (errorStatus >= 500) {
+          errorMessage = 'Server error. Please try again later';
+        } else if (error?.message) {
+          errorMessage = error.message;
+        }
+      }
+    };
+
+    loadCustomers();
+  }, [dispatch]);
+
+  /**
+   * Filter and sort customers based on search term and account ID
    */
   const filteredCustomers = useMemo(() => {
-    if (!searchTerm) return customers;
+    let result = customers;
 
-    const term = searchTerm.toLowerCase();
-    return customers.filter(
-      (customer) =>
-        customer.fullName.toLowerCase().includes(term) ||
-        customer.email.toLowerCase().includes(term) ||
-        customer.company.toLowerCase().includes(term) ||
-        customer.phone.includes(term)
-    );
+    // Apply search filter if search term exists
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      result = customers.filter(
+        (customer) => {
+          const fullName = customer.fullName || 
+            `${customer.firstName || ''} ${customer.lastName || ''}`.trim();
+          
+          // Convert accountId to string for search (accountId is numeric)
+          const accountIdStr = customer.accountId 
+            ? String(customer.accountId) 
+            : '';
+          const idStr = customer.id 
+            ? String(customer.id) 
+            : '';
+          
+          return (
+            fullName.toLowerCase().includes(term) ||
+            (customer.email && customer.email.toLowerCase().includes(term)) ||
+            (customer.phone && customer.phone && customer.phone.toLowerCase().includes(term)) ||
+            (customer.phoneNumber && String(customer.phoneNumber).includes(term)) ||
+            (accountIdStr && accountIdStr.toLowerCase().includes(term)) ||
+            (idStr && idStr.toLowerCase().includes(term)) ||
+            (customer.address && customer.address.toLowerCase().includes(term)) ||
+            (customer.city && customer.city && customer.city.toLowerCase().includes(term))
+          );
+        }
+      );
+    }
+
+    // Sort by accountId in ascending order (accountId is numeric)
+    return [...result].sort((a, b) => {
+      const accountIdA = a.accountId || a.id || 0;
+      const accountIdB = b.accountId || b.id || 0;
+      
+      // Compare as numbers since accountId is always numeric
+      return Number(accountIdA) - Number(accountIdB);
+    });
   }, [customers, searchTerm]);
-
-  /**
-   * Format currency value
-   * @param {number} value - Currency value
-   * @returns {string} Formatted currency string
-   */
-  const formatCurrency = (value) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(value);
-  };
 
   /**
    * Handle search input change
@@ -59,46 +110,94 @@ const CustomerAccounts = () => {
   };
 
   /**
-   * Handle delete customer
-   * @param {number} id - Customer id
+   * Handle refresh customers list
    */
-  const handleDelete = (id) => {
-    if (window.confirm('Are you sure you want to delete this customer?')) {
-      dispatch(deleteCustomer(id));
+  const handleRefresh = async () => {
+    try {
+      await dispatch(fetchCustomersAsync()).unwrap();
+      showToast('Customers refreshed successfully', 'success');
+    } catch (error) {
+      const errorStatus = error?.status || 500;
+      let errorMessage = 'Failed to refresh customers';
+
+      if (errorStatus === 0) {
+        errorMessage = 'Network error. Please check your connection';
+      } else if (errorStatus >= 500) {
+        errorMessage = 'Server error. Please try again later';
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
     }
   };
 
   /**
-   * Get status badge class
-   * @param {string} status - Customer status
-   * @returns {string} Status badge class
+   * Handle delete button click - opens confirmation modal
+   * @param {number|string} id - Customer id
    */
-  const getStatusClass = (status) => {
-    switch (status) {
-      case 'Active':
-        return styles.statusActive;
-      case 'Pending':
-        return styles.statusPending;
-      case 'Inactive':
-        return styles.statusInactive;
-      default:
-        return styles.statusDefault;
+  const handleDelete = (id) => {
+    setCustomerIdToDelete(id);
+    setIsConfirmModalOpen(true);
+  };
+
+  /**
+   * Confirm and execute delete customer with API call and toast notifications
+   */
+  const confirmDelete = async () => {
+    if (!customerIdToDelete) return;
+
+    try {
+      await dispatch(deleteCustomerAsync(customerIdToDelete)).unwrap();
+      // Success - customer deleted
+      showToast('Customer deleted successfully', 'success');
+      setCustomerIdToDelete(null);
+    } catch (error) {
+      // Error is handled by Redux and shown in useEffect
+      // No need to show toast here - Redux will handle it
+      setCustomerIdToDelete(null);
     }
   };
+
+  /**
+   * Effect to handle error state changes (fallback for errors not caught in specific handlers)
+   * Only shows errors that aren't already handled by modals or specific handlers
+   */
+  useEffect(() => {
+    if (error && !loading && typeof error === 'object' && error.message) {
+      // Only show toast if error has a message and we're not currently loading
+      // This is a fallback for errors that might occur outside of specific handlers
+      const errorMessage = error.message || 'An error occurred. Please try again';
+      showToast(errorMessage, 'error');
+    }
+  }, [error, loading, showToast, dispatch]);
+
 
   /**
    * Table columns configuration
    */
   const columns = [
     {
-      key: 'fullName',
-      label: 'Customer',
+      key: 'accountId',
+      label: 'Account ID',
       render: (value, row) => (
-        <div className={styles.customerCell}>
-          <div className={styles.customerName}>{value}</div>
-          <div className={styles.customerId}>ID: {row.id}</div>
+        <div className={styles.accountIdCell}>
+          <span className={styles.accountIdValue}>{row.accountId || row.id}</span>
         </div>
       ),
+    },
+    {
+      key: 'fullName',
+      label: 'Full Name',
+      render: (value, row) => {
+        // Concatenate firstName and lastName if fullName is not available
+        const displayName = row.fullName || 
+          `${row.firstName || ''} ${row.lastName || ''}`.trim() || 
+          'N/A';
+        return (
+          <div className={styles.fullNameCell}>
+            <span className={styles.fullNameValue}>{displayName}</span>
+          </div>
+        );
+      },
     },
     {
       key: 'contact',
@@ -107,45 +206,48 @@ const CustomerAccounts = () => {
         <div className={styles.contactCell}>
           <div className={styles.contactItem}>
             <span className={styles.contactIcon}>📧</span>
-            <span>{row.email}</span>
+            <span>{row.email || 'N/A'}</span>
           </div>
           <div className={styles.contactItem}>
             <span className={styles.contactIcon}>📞</span>
-            <span>{row.phone}</span>
+            <span>{row.phone || row.phoneNumber || 'N/A'}</span>
           </div>
         </div>
       ),
     },
     {
-      key: 'company',
-      label: 'Company',
-      render: (value) => (
-        <div className={styles.companyCell}>
-          <span className={styles.companyIcon}>🏢</span>
-          <span>{value}</span>
+      key: 'address',
+      label: 'Address',
+      render: (value, row) => {
+        // Use addressDisplay if available (already concatenated address + city)
+        // Otherwise concatenate address and city from row data
+        const displayAddress = row.addressDisplay || 
+          [row.address, row.city].filter((part) => part && part.trim()).join(', ') || 
+          'N/A';
+        return (
+          <div className={styles.addressCell}>
+            <span>{displayAddress}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'country',
+      label: 'Country',
+      render: (value, row) => (
+        <div className={styles.countryCell}>
+          <span>{row.country || 'USA'}</span>
         </div>
       ),
     },
     {
-      key: 'status',
-      label: 'Status',
-      render: (value) => (
-        <span className={`${styles.statusBadge} ${getStatusClass(value)}`}>
-          {value}
-        </span>
+      key: 'dateCreated',
+      label: 'Date Created',
+      render: (value, row) => (
+        <div className={styles.dateCreatedCell}>
+          <span>{row.dateCreated || row.joined || 'N/A'}</span>
+        </div>
       ),
-    },
-    {
-      key: 'balance',
-      label: 'Balance',
-      render: (value) => (
-        <span className={styles.balanceCell}>{formatCurrency(value)}</span>
-      ),
-    },
-    {
-      key: 'joined',
-      label: 'Joined',
-      render: (value) => <span className={styles.joinedCell}>{value}</span>,
     },
     {
       key: 'actions',
@@ -156,8 +258,8 @@ const CustomerAccounts = () => {
             className={styles.actionButton}
             onClick={(e) => {
               e.stopPropagation();
-              // Handle edit - can be implemented later
-              alert('Edit functionality coming soon');
+              setSelectedCustomer(row);
+              setIsEditModalOpen(true);
             }}
             aria-label="Edit customer"
           >
@@ -167,9 +269,10 @@ const CustomerAccounts = () => {
             className={styles.actionButton}
             onClick={(e) => {
               e.stopPropagation();
-              handleDelete(row.id);
+              handleDelete(row.accountId || row.id);
             }}
             aria-label="Delete customer"
+            disabled={loading}
           >
             🗑️
           </button>
@@ -189,7 +292,7 @@ const CustomerAccounts = () => {
             <h1 className={styles.headerTitle}>Welcome to Your CRM System</h1>
             <p className={styles.headerDescription}>
               Manage all your customer relationships in one place. Track
-              accounts, monitor balances, and keep your business organized.
+              customer informations and keep your business organized.
             </p>
           </div>
           <div className={styles.headerStats}>
@@ -230,6 +333,15 @@ const CustomerAccounts = () => {
               value={searchTerm}
               onChange={handleSearchChange}
             />
+            <button
+              className={`${styles.refreshButton} ${loading ? styles.refreshing : ''}`}
+              onClick={handleRefresh}
+              disabled={loading}
+              aria-label="Refresh customers"
+              title="Refresh customers list"
+            >
+              🔄
+            </button>
           </div>
           <div className={styles.viewControls}>
             <span className={styles.customerCount}>
@@ -245,15 +357,6 @@ const CustomerAccounts = () => {
               >
                 <span>📊</span> Table
               </button>
-              <button
-                className={`${styles.viewButton} ${
-                  viewMode === 'cards' ? styles.viewButtonActive : ''
-                }`}
-                onClick={() => dispatch(setViewMode('cards'))}
-                aria-label="Cards view"
-              >
-                <span>🃏</span> Cards
-              </button>
             </div>
           </div>
         </div>
@@ -263,18 +366,37 @@ const CustomerAccounts = () => {
           <Table columns={columns} data={filteredCustomers} />
         )}
 
-        {/* Cards View - Placeholder for future implementation */}
-        {viewMode === 'cards' && (
-          <div className={styles.cardsPlaceholder}>
-            Cards view coming soon...
-          </div>
-        )}
       </div>
 
       {/* Add Customer Modal */}
       <AddCustomerModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+      />
+
+      {/* Edit Customer Modal */}
+      <EditCustomerModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setSelectedCustomer(null);
+        }}
+        customer={selectedCustomer}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isConfirmModalOpen}
+        onClose={() => {
+          setIsConfirmModalOpen(false);
+          setCustomerIdToDelete(null);
+        }}
+        onConfirm={confirmDelete}
+        title="Delete Customer"
+        message="Are you sure you want to delete this customer? This action cannot be undone."
+        confirmText="OK"
+        cancelText="Cancel"
+        confirmVariant="danger"
       />
     </div>
   );
