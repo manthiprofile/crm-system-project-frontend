@@ -1,0 +1,17 @@
+---
+alwaysApply: true
+---
+-follow react web app relateds best practices.
+-All code must be self-explanatory, readable, and team-maintainable.
+-Follow camelCase for variables and functions.
+-Follow PascalCase for component and class names.
+-Follow camelCase for variables and functions.
+-Follow PascalCase for component and class names.
+-Avoid inline styles
+-Add JSDoc comments above each component, hook, and function to describe its purpose and expected behavior.
+-Use Redux global state management
+-Follow Single Responsibility Principle — one component = one clear purpose.
+-Always use async/await and handle loading and error states clearly in the UI.
+-maintain 80% unit test coverage including functions and all other testable lines
+-run and check for eslint violations and correct them
+-Always validate inputs and API responses before rendering
