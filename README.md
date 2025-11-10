@@ -272,5 +272,6 @@ MIT
 
 ## Support
 
-For issues or questions, please check the troubleshooting section above or contact the development team.
+For issues or questions, please check the troubleshooting section above or contact the developer.
+
 
